@@ -5,8 +5,8 @@ const ChatComponent = () => {
   const [messageInput, setMessageInput] = useState('');
   const [username, setUsername] = useState('');
   const [userSet, setUserSet] = useState(false);
-  
-  const { isConnected, messages, sendMessage } = useWebSocket('ws://localhost:3000', {
+
+  const { isConnected, messages, sendMessage } = useWebSocket('ws://localhost:8080', {
     onOpen: () => console.log('WebSocket connected'),
     onMessage: (message) => console.log('Received message:', message),
     onClose: () => console.log('WebSocket disconnected'),
@@ -49,7 +49,7 @@ const ChatComponent = () => {
   return (
     <div className="chat-container">
       <div className="status">Connection status: {isConnected ? 'Connected' : 'Disconnected'}</div>
-      
+
       <div className="messages">
         {messages.map((message, index) => (
           <div key={index} className="message">
@@ -58,7 +58,7 @@ const ChatComponent = () => {
           </div>
         ))}
       </div>
-      
+
       <div className="input-area">
         <input
           type="text"
