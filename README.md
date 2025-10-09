@@ -34,7 +34,7 @@ npm install
 node server.js
 ```
 
-服务器将在 `ws://localhost:8080/realtime` 启动
+服务器将在 `ws://localhost:8082/realtime` 启动
 
 ### 3. 启动前端应用
 
@@ -65,7 +65,7 @@ npm install -g wscat
 
 #### 连接服务器
 ```bash
-wscat -c ws://localhost:8080/realtime -s json-v1
+wscat -c ws://localhost:8082/realtime -s json-v1
 ```
 
 #### 发送消息
@@ -264,7 +264,7 @@ location /realtime {
 
 ### 连接问题
 - 检查服务器是否启动: `node server.js`
-- 检查端口是否被占用: `netstat -ano | findstr :8080` (Windows)
+- 检查端口是否被占用: `netstat -ano | findstr :8082` (Windows)
 - 检查防火墙设置
 
 ### 消息不显示

@@ -33,8 +33,8 @@ const RATE_LIMIT = {
 };
 
 // 心跳配置
-const HEARTBEAT_INTERVAL = 30000; // 30秒
-const HEARTBEAT_TIMEOUT = 10000; // 10秒超时
+const HEARTBEAT_INTERVAL = 60000; // 60秒
+const HEARTBEAT_TIMEOUT = 30000; // 30秒超时
 
 server.listen(8082, () => {
     console.log('WebSocket server running on ws://localhost:8082/realtime');
@@ -92,6 +92,15 @@ wss.on('connection', function connection(ws, request) {
     // 处理关闭
     ws.on('close', function close(code, reason) {
         console.log(`Client disconnected: ${code} ${reason}`);
+
+        // 清理心跳定时器
+        if (ws.heartbeatInterval) {
+            clearInterval(ws.heartbeatInterval);
+        }
+        if (ws.heartbeatTimeout) {
+            clearTimeout(ws.heartbeatTimeout);
+        }
+
         const info = clientInfo.get(ws);
         if (info && info.room && info.nick) {
             // 广播用户离开消息
@@ -148,16 +157,19 @@ function checkRateLimit(ws) {
 function startHeartbeat(ws) {
     const heartbeatInterval = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
+            // 清除之前的超时
+            if (ws.heartbeatTimeout) {
+                clearTimeout(ws.heartbeatTimeout);
+            }
+
             ws.send(JSON.stringify({ type: 'ping' }));
+            console.log('Sent ping to client');
 
             // 设置超时检查
-            const timeout = setTimeout(() => {
+            ws.heartbeatTimeout = setTimeout(() => {
                 console.log('Heartbeat timeout, closing connection');
                 ws.close(1008, 'Heartbeat timeout');
             }, HEARTBEAT_TIMEOUT);
-
-            // 存储超时ID以便清除
-            ws.heartbeatTimeout = timeout;
         } else {
             clearInterval(heartbeatInterval);
         }
@@ -280,6 +292,7 @@ function handleMessage(ws, message) {
                 ws.heartbeatTimeout = null;
             }
             info.lastPing = Date.now();
+            console.log('Received pong from client');
             break;
 
         case 'ping':

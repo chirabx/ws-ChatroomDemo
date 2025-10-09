@@ -9,6 +9,7 @@ const ChatComponent = () => {
   const [whisperText, setWhisperText] = useState('');
   const [showWhisper, setShowWhisper] = useState(false);
   const [userSet, setUserSet] = useState(false);
+  const [canReconnect, setCanReconnect] = useState(false);
 
   const {
     isConnected,
@@ -17,11 +18,26 @@ const ChatComponent = () => {
     currentNick,
     sendMessage,
     joinRoom,
-    sendWhisper
+    sendWhisper,
+    manualReconnect
   } = useWebSocket('ws://localhost:8082/realtime', {
-    onOpen: () => console.log('WebSocket connected'),
+    onOpen: () => {
+      console.log('WebSocket connected');
+      setCanReconnect(false);
+      // 重连后自动重新加入房间
+      if (userSet && username && roomName) {
+        setTimeout(() => {
+          joinRoom(roomName, username);
+        }, 500);
+      }
+    },
     onMessage: (message) => console.log('Received message:', message),
-    onClose: () => console.log('WebSocket disconnected'),
+    onClose: (event) => {
+      console.log('WebSocket disconnected:', event?.code, event?.reason);
+      if (event?.code === 1008) {
+        setCanReconnect(true);
+      }
+    },
     onError: (error) => console.error('WebSocket error:', error)
   });
 
@@ -50,6 +66,11 @@ const ChatComponent = () => {
         setShowWhisper(false);
       }
     }
+  };
+
+  const handleManualReconnect = () => {
+    manualReconnect();
+    setCanReconnect(false);
   };
 
   const renderMessage = (message, index) => {
@@ -142,16 +163,29 @@ const ChatComponent = () => {
     <div className="chat-container">
       <div className="chat-header">
         <div className="status">
+          <span className={`status-indicator ${isConnected ? 'connected' : 'disconnected'}`}>
+            {isConnected ? '🟢' : '🔴'}
+          </span>
           连接状态: {isConnected ? '已连接' : '未连接'} |
-          房间: {currentRoom} |
-          用户: {currentNick}
+          房间: {currentRoom || '未加入'} |
+          用户: {currentNick || '未设置'}
         </div>
-        <button
-          className="whisper-toggle"
-          onClick={() => setShowWhisper(!showWhisper)}
-        >
-          {showWhisper ? '隐藏私聊' : '显示私聊'}
-        </button>
+        <div className="header-buttons">
+          {canReconnect && (
+            <button
+              className="reconnect-button"
+              onClick={handleManualReconnect}
+            >
+              重新连接
+            </button>
+          )}
+          <button
+            className="whisper-toggle"
+            onClick={() => setShowWhisper(!showWhisper)}
+          >
+            {showWhisper ? '隐藏私聊' : '显示私聊'}
+          </button>
+        </div>
       </div>
 
       <div className="messages">

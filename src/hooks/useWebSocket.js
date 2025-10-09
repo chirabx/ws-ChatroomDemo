@@ -42,9 +42,18 @@ export const useWebSocket = (url, options = {}) => {
         }
       };
 
-      ws.current.onclose = () => {
+      ws.current.onclose = (event) => {
         setIsConnected(false);
+        console.log('WebSocket closed:', event.code, event.reason);
         if (options.onClose) options.onClose();
+
+        // 心跳超时(1008)或正常关闭(1000)时不重连
+        if (event.code === 1000 || event.code === 1008) {
+          console.log('Connection closed normally or due to timeout, not reconnecting');
+          return;
+        }
+
+        console.log('Attempting to reconnect...');
         attemptReconnect();
       };
 
@@ -60,9 +69,25 @@ export const useWebSocket = (url, options = {}) => {
   const attemptReconnect = () => {
     if (reconnectAttempts.current < (options.maxReconnectAttempts || 5)) {
       reconnectAttempts.current++;
+      console.log(`Reconnecting attempt ${reconnectAttempts.current}...`);
       setTimeout(() => {
         connect();
+        // 重连成功后重新加入房间
+        if (currentRoom && currentNick) {
+          setTimeout(() => {
+            if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+              ws.current.send(JSON.stringify({
+                type: 'join',
+                room: currentRoom,
+                nick: currentNick
+              }));
+              console.log(`Rejoined room ${currentRoom} as ${currentNick}`);
+            }
+          }, 1000);
+        }
       }, (options.reconnectInterval || 1000) * reconnectAttempts.current);
+    } else {
+      console.log('Max reconnection attempts reached');
     }
   };
 
@@ -78,6 +103,11 @@ export const useWebSocket = (url, options = {}) => {
     if (ws.current) {
       ws.current.close();
     }
+  };
+
+  const manualReconnect = () => {
+    reconnectAttempts.current = 0;
+    connect();
   };
 
   useEffect(() => {
@@ -125,6 +155,7 @@ export const useWebSocket = (url, options = {}) => {
     sendMessage,
     joinRoom,
     sendWhisper,
-    closeConnection
+    closeConnection,
+    manualReconnect
   };
 };
