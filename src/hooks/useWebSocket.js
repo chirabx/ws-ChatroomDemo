@@ -4,14 +4,17 @@ export const useWebSocket = (url, options = {}) => {
   const [isConnected, setIsConnected] = useState(false);
   const [messages, setMessages] = useState([]);
   const [error, setError] = useState(null);
+  const [currentRoom, setCurrentRoom] = useState(null);
+  const [currentNick, setCurrentNick] = useState(null);
   const ws = useRef(null);
   const reconnectAttempts = useRef(0);
+  const heartbeatTimeout = useRef(null);
   // 添加一个ref来跟踪已处理的消息
   const processedMessages = useRef(new Set());
 
   const connect = () => {
     try {
-      ws.current = new WebSocket(url);
+      ws.current = new WebSocket(url, ['json-v1']);
 
       ws.current.onopen = () => {
         setIsConnected(true);
@@ -21,8 +24,15 @@ export const useWebSocket = (url, options = {}) => {
 
       ws.current.onmessage = (event) => {
         const message = JSON.parse(event.data);
-        // 使用消息的唯一标识符（如时间戳+用户+内容的组合）来检查是否已处理过该消息
-        const messageId = `${message.timestamp}-${message.user}-${message.content}`;
+
+        // 处理心跳
+        if (message.type === 'ping') {
+          ws.current.send(JSON.stringify({ type: 'pong' }));
+          return;
+        }
+
+        // 使用消息的唯一标识符来检查是否已处理过该消息
+        const messageId = `${message.timestamp}-${message.nick || message.user}-${message.text || message.content}`;
 
         // 如果消息没有被处理过，则添加到消息列表中
         if (!processedMessages.current.has(messageId)) {
@@ -80,11 +90,41 @@ export const useWebSocket = (url, options = {}) => {
     };
   }, [url]);
 
+  const joinRoom = (room, nick) => {
+    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify({
+        type: 'join',
+        room: room,
+        nick: nick
+      }));
+      setCurrentRoom(room);
+      setCurrentNick(nick);
+      return true;
+    }
+    return false;
+  };
+
+  const sendWhisper = (to, text) => {
+    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify({
+        type: 'whisper',
+        to: to,
+        text: text
+      }));
+      return true;
+    }
+    return false;
+  };
+
   return {
     isConnected,
     messages,
     error,
+    currentRoom,
+    currentNick,
     sendMessage,
+    joinRoom,
+    sendWhisper,
     closeConnection
   };
 };
