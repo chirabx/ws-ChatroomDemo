@@ -20,7 +20,11 @@ const ChatComponent = () => {
     joinRoom,
     sendWhisper,
     manualReconnect
-  } = useWebSocket('ws://localhost:8082/realtime', {
+  } = useWebSocket((() => {
+    const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const host = window.location.host; // e.g. wschat.chirabx.xyz or localhost:5173
+    return `${scheme}://${host}/realtime`;
+  })(), {
     onOpen: () => {
       console.log('WebSocket connected');
       setCanReconnect(false);
