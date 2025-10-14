@@ -107,8 +107,13 @@ const ChatComponent = () => {
       case 'whisper':
         return (
           <div key={index} className="whisper-message">
-            <span className="whisper-label">私聊</span>
-            <span className="user">{message.from}: </span>
+            <span className="whisper-label">
+              {message.direction === 'sent' ? '私聊发送给' : '私聊来自'}
+              {message.direction === 'sent' ? message.to : message.from}
+            </span>
+            <span className="user">
+              {message.direction === 'sent' ? currentNick : message.from}:
+            </span>
             <span className="content">{message.text}</span>
           </div>
         );

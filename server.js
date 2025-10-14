@@ -233,17 +233,32 @@ function broadcastToRoom(room, message) {
 function sendToUser(room, targetNick, message, senderNick) {
     const roomSet = rooms.get(room);
     if (roomSet) {
+        const whisperMessage = {
+            type: 'whisper',
+            from: senderNick,
+            to: targetNick,
+            text: message,
+            timestamp: Date.now()
+        };
+
         roomSet.forEach(client => {
             if (client.readyState === WebSocket.OPEN) {
                 const info = clientInfo.get(client);
-                if (info && info.nick === targetNick) {
-                    client.send(JSON.stringify({
-                        type: 'whisper',
-                        from: senderNick,
-                        text: message,
-                        timestamp: Date.now()
-                    }));
-                    return;
+                if (info && info.nick) {
+                    // 发送给目标用户
+                    if (info.nick === targetNick) {
+                        client.send(JSON.stringify({
+                            ...whisperMessage,
+                            direction: 'received' // 接收方标识
+                        }));
+                    }
+                    // 也发送给发送方
+                    else if (info.nick === senderNick) {
+                        client.send(JSON.stringify({
+                            ...whisperMessage,
+                            direction: 'sent' // 发送方标识
+                        }));
+                    }
                 }
             }
         });
