@@ -125,6 +125,20 @@ const ChatComponent = () => {
           </div>
         );
 
+      case 'onlineCount':
+        return (
+          <div key={index} className="system-message">
+            <span className="system-text">系统: 房间 {message.room} 当前在线人数: {message.count}</span>
+          </div>
+        );
+
+      case 'onlineCountUpdate':
+        return (
+          <div key={index} className="system-message">
+            <span className="system-text">系统: 房间在线人数更新为 {message.count} 人</span>
+          </div>
+        );
+
       default:
         return (
           <div key={index} className="message">

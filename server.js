@@ -1,6 +1,17 @@
 const WebSocket = require('ws');
 const http = require('http');
 
+// Origin白名单配置
+const ALLOWED_ORIGINS = process.env.APP_ORIGIN ?
+    new RegExp(process.env.APP_ORIGIN) :
+    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+// 演示Token配置
+const DEMO_TOKEN = process.env.DEMO_TOKEN || 'demo-token-123';
+
+console.log('Origin白名单配置:', process.env.APP_ORIGIN || '默认localhost/127.0.0.1');
+console.log('演示Token配置:', DEMO_TOKEN);
+
 // 创建HTTP服务器
 const server = http.createServer();
 
@@ -10,26 +21,54 @@ const wss = new WebSocket.Server({
     path: '/realtime',
     maxPayload: 1024 * 1024, // 1MB maxPayload
     verifyClient: (info) => {
+        // 握手校验：检查Origin
+        const origin = info.req.headers.origin;
+        if (!origin) {
+            console.log('Handshake failed: missing Origin header');
+            return false;
+        }
+
+        if (!ALLOWED_ORIGINS.test(origin)) {
+            console.log('Handshake failed: Origin not allowed:', origin);
+            return false;
+        }
+
+        // 握手校验：检查URL中的token参数
+        const url = new URL(info.req.url, `http://${info.req.headers.host}`);
+        const token = url.searchParams.get('token');
+
+        if (!token) {
+            console.log('Handshake failed: missing token parameter');
+            return false;
+        }
+
+        if (token !== DEMO_TOKEN) {
+            console.log('Handshake failed: invalid token');
+            return false;
+        }
+
         // 握手校验：检查子协议
         const protocols = info.req.headers['sec-websocket-protocol'];
         if (!protocols || !protocols.includes('json-v1')) {
             console.log('Handshake failed: missing json-v1 protocol');
             return false;
         }
+
+        console.log('Handshake successful for origin:', origin, 'with valid token');
         return true;
     }
 });
 
 // 房间管理：room -> Set<ws>
 const rooms = new Map();
-// 客户端信息映射：ws -> {nick, room, lastPing, messageCount, burstCount}
+// 客户端信息映射：ws -> {nick, room, lastPing, tokens, lastRefill}
 const clientInfo = new Map();
 
-// 限流配置
+// 令牌桶限流配置
 const RATE_LIMIT = {
-    MAX_MESSAGES_PER_SECOND: 10,
-    MAX_BURST: 20,
-    WINDOW_SIZE: 1000 // 1秒窗口
+    RATE: 10,           // 令牌生成速率：10 tokens/second
+    BURST: 20,          // 桶容量：20 tokens
+    REFILL_INTERVAL: 100 // 令牌补充间隔：100ms
 };
 
 // 心跳配置
@@ -48,9 +87,8 @@ wss.on('connection', function connection(ws, request) {
         nick: null,
         room: null,
         lastPing: Date.now(),
-        messageCount: 0,
-        burstCount: 0,
-        lastResetTime: Date.now()
+        tokens: RATE_LIMIT.BURST, // 初始令牌数等于桶容量
+        lastRefill: Date.now()
     });
 
     // 发送欢迎消息
@@ -122,35 +160,31 @@ wss.on('connection', function connection(ws, request) {
     });
 });
 
-// 限流检查
+// 令牌桶限流检查
 function checkRateLimit(ws) {
     const info = clientInfo.get(ws);
     if (!info) return false;
 
     const now = Date.now();
 
-    // 重置计数器（每秒重置）
-    if (now - info.lastResetTime >= RATE_LIMIT.WINDOW_SIZE) {
-        info.messageCount = 0;
-        info.burstCount = 0;
-        info.lastResetTime = now;
+    // 计算需要补充的令牌数
+    const timePassed = now - info.lastRefill;
+    const tokensToAdd = Math.floor((timePassed / 1000) * RATE_LIMIT.RATE);
+
+    if (tokensToAdd > 0) {
+        // 补充令牌，但不能超过桶容量
+        info.tokens = Math.min(RATE_LIMIT.BURST, info.tokens + tokensToAdd);
+        info.lastRefill = now;
     }
 
-    // 检查每秒消息限制
-    if (info.messageCount >= RATE_LIMIT.MAX_MESSAGES_PER_SECOND) {
-        return false;
+    // 检查是否有可用令牌
+    if (info.tokens >= 1) {
+        info.tokens--; // 消费一个令牌
+        return true;
     }
 
-    // 检查突发限制
-    if (info.burstCount >= RATE_LIMIT.MAX_BURST) {
-        return false;
-    }
-
-    // 增加计数
-    info.messageCount++;
-    info.burstCount++;
-
-    return true;
+    // 没有可用令牌，限流
+    return false;
 }
 
 // 心跳管理
@@ -205,7 +239,17 @@ function joinRoom(ws, room, nick) {
         timestamp: Date.now()
     });
 
-    console.log(`${nick} joined room ${room}`);
+    // 广播在线人数更新
+    const roomSet = rooms.get(room);
+    const onlineCount = roomSet ? roomSet.size : 0;
+    broadcastToRoom(room, {
+        type: 'onlineCountUpdate',
+        room: room,
+        count: onlineCount,
+        timestamp: Date.now()
+    });
+
+    console.log(`${nick} joined room ${room}, online count: ${onlineCount}`);
 }
 
 function removeFromRoom(ws, room) {
@@ -214,6 +258,15 @@ function removeFromRoom(ws, room) {
         roomSet.delete(ws);
         if (roomSet.size === 0) {
             rooms.delete(room);
+        } else {
+            // 广播在线人数更新（房间还有人时）
+            const onlineCount = roomSet.size;
+            broadcastToRoom(room, {
+                type: 'onlineCountUpdate',
+                room: room,
+                count: onlineCount,
+                timestamp: Date.now()
+            });
         }
     }
 }
@@ -313,6 +366,20 @@ function handleMessage(ws, message) {
         case 'ping':
             // 客户端ping，服务端响应pong
             ws.send(JSON.stringify({ type: 'pong' }));
+            break;
+
+        case 'getOnlineCount':
+            // 获取在线人数
+            if (info.room) {
+                const roomSet = rooms.get(info.room);
+                const onlineCount = roomSet ? roomSet.size : 0;
+                ws.send(JSON.stringify({
+                    type: 'onlineCount',
+                    room: info.room,
+                    count: onlineCount,
+                    timestamp: Date.now()
+                }));
+            }
             break;
 
         default:

@@ -14,7 +14,11 @@ export const useWebSocket = (url, options = {}) => {
 
   const connect = () => {
     try {
-      ws.current = new WebSocket(url, ['json-v1']);
+      // 创建WebSocket连接，通过URL参数传递token
+      const token = 'demo-token-123';
+      const wsUrl = `${url}?token=${encodeURIComponent(token)}`;
+
+      ws.current = new WebSocket(wsUrl, ['json-v1']);
 
       ws.current.onopen = () => {
         setIsConnected(true);
