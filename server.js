@@ -19,7 +19,7 @@ const server = http.createServer();
 const wss = new WebSocket.Server({
     server,
     path: '/realtime',
-    maxPayload: 1024 * 1024, // 1MB maxPayload
+    maxPayload: 10 * 1024, // 临时改为10KB，让应用层处理1KB限制
     verifyClient: (info) => {
         // 握手校验：检查Origin
         const origin = info.req.headers.origin;
@@ -87,7 +87,7 @@ wss.on('connection', function connection(ws, request) {
         nick: null,
         room: null,
         lastPing: Date.now(),
-        tokens: RATE_LIMIT.BURST, // 初始令牌数等于桶容量
+        tokens: RATE_LIMIT.BURST,
         lastRefill: Date.now()
     });
 
@@ -102,15 +102,18 @@ wss.on('connection', function connection(ws, request) {
 
     // 处理消息
     ws.on('message', function incoming(data) {
-        console.log('Received: %s', data);
+        console.log(`📨 Received message: ${data.length} bytes`);
+        console.log(`📊 Message size: ${(data.length / 1024).toFixed(2)} KB`);
 
-        // 检查消息大小
-        if (data.length > 1024 * 1024) {
+        if (data.length > 1024) { // 1KB
+            console.log(`❌ Message too large: ${data.length} bytes (max: 1024)`);
+            console.log(`🔍 Client info:`, clientInfo.get(ws));
             ws.close(1009, 'Message too large');
             return;
+        } else {
+            console.log(`✅ Message size OK: ${data.length} bytes`);
         }
 
-        // 限流检查
         if (!checkRateLimit(ws)) {
             ws.close(1008, 'Rate limit exceeded');
             return;
@@ -199,7 +202,7 @@ function startHeartbeat(ws) {
             ws.send(JSON.stringify({ type: 'ping' }));
             console.log('Sent ping to client');
 
-            // 设置超时检查
+            // 超时检查
             ws.heartbeatTimeout = setTimeout(() => {
                 console.log('Heartbeat timeout, closing connection');
                 ws.close(1008, 'Heartbeat timeout');
